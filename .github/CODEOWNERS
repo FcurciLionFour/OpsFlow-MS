@@ -1,0 +1,9 @@
+# Default owners for all repository changes
+* @absti
+
+# Security-sensitive areas
+/src/auth/ @absti
+/src/common/guards/ @absti
+/src/common/filters/ @absti
+/prisma/ @absti
+/docs/ @absti

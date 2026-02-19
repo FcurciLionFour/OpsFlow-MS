@@ -1,0 +1,44 @@
+name: Bug report
+description: Report a reproducible bug in the boilerplate.
+title: "[Bug] "
+labels:
+  - bug
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What is happening and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction steps
+      description: Provide exact steps, commands and payloads.
+      placeholder: |
+        1. Run ...
+        2. Call endpoint ...
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / errors
+      description: Paste stack trace, response payload or CI logs.
+      render: shell
+  - type: input
+    id: commit
+    attributes:
+      label: Commit / branch
+      description: Branch name or commit hash where it was observed.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Validation
+      options:
+        - label: I can reproduce this issue consistently.
+          required: true
+        - label: I already ran lint, unit tests and e2e tests.
+          required: false
