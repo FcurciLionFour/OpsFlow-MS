@@ -17,6 +17,8 @@ interface ErrorBody {
   path: string;
   timestamp: string;
   requestId?: string;
+  traceId?: string;
+  details?: unknown;
   errors?: string[];
   retryAfterSeconds?: number;
 }
@@ -36,6 +38,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     let statusCode = HttpStatus.INTERNAL_SERVER_ERROR;
     let code = 'INTERNAL_SERVER_ERROR';
     let message = 'Internal server error';
+    let details: unknown;
     let errors: string[] | undefined;
     let retryAfterSeconds: number | undefined;
 
@@ -65,6 +68,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
           .errorCode;
         const responseSnakeErrorCode = (response as { error_code?: unknown })
           .error_code;
+        details = (response as { details?: unknown }).details;
         if (
           typeof responseCode === 'string' &&
           responseCode.trim().length > 0
@@ -108,7 +112,12 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       path,
       timestamp: new Date().toISOString(),
       requestId,
+      traceId: requestId,
     };
+
+    if (details !== undefined) {
+      body.details = details;
+    }
 
     if (errors && errors.length > 0) {
       body.errors = errors;

@@ -7,8 +7,46 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model User {
+model Organization {
   id       String  @id @default(uuid())
+  name     String
+  slug     String  @unique
+  isActive Boolean @default(true)
+
+  users         User[]
+  branches      Branch[]
+  cashMovements CashMovement[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Branch {
+  id             String @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  name     String
+  code     String
+  isActive Boolean @default(true)
+
+  users         User[]
+  cashMovements CashMovement[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([organizationId, code])
+  @@index([organizationId, isActive])
+}
+
+model User {
+  id             String @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branchId       String?
+  branch         Branch? @relation(fields: [branchId], references: [id], onDelete: SetNull)
+
   email    String  @unique
   password String
   isActive Boolean @default(true)
@@ -16,11 +54,17 @@ model User {
   roles     UserRole[]
   sessions  AuthSession[]
   auditLogs AuditLog[]
+  createdCashMovements   CashMovement[] @relation("CashMovementCreatedBy")
+  approvedCashMovements  CashMovement[] @relation("CashMovementApprovedBy")
+  deliveredCashMovements CashMovement[] @relation("CashMovementDeliveredBy")
 
   passwordResetTokens PasswordResetToken[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([organizationId])
+  @@index([branchId])
 }
 
 model AuthSession {
@@ -116,4 +160,42 @@ model PasswordResetToken {
 
   @@index([token])
   @@index([userId])
+}
+
+model CashMovement {
+  id             String @id @default(uuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  branchId       String
+  branch         Branch @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  createdById    String
+  createdBy      User @relation("CashMovementCreatedBy", fields: [createdById], references: [id], onDelete: Restrict)
+  approvedById   String?
+  approvedBy     User? @relation("CashMovementApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
+  deliveredById  String?
+  deliveredBy    User? @relation("CashMovementDeliveredBy", fields: [deliveredById], references: [id], onDelete: SetNull)
+
+  type      CashMovementType
+  status    CashMovementStatus @default(PENDING)
+  amount    Decimal @db.Decimal(14, 2)
+  currency  String @default("ARS")
+  description String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organizationId, status, createdAt])
+  @@index([organizationId, branchId, createdAt])
+  @@index([organizationId, branchId, status])
+}
+
+enum CashMovementType {
+  IN
+  OUT
+}
+
+enum CashMovementStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  DELIVERED
 }

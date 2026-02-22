@@ -1,11 +1,11 @@
 import {
-  Controller,
-  Get,
-  Post,
-  Patch,
-  Delete,
-  Param,
   Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Patch,
+  Post,
   UseGuards,
 } from '@nestjs/common';
 import { UsersService } from './users.service';
@@ -14,7 +14,6 @@ import { PermissionsGuard } from 'src/auth/guards/permissions.guard';
 import { RequirePermissions } from 'src/auth/decorators/permissions.decorator';
 import { CurrentUser } from 'src/auth/decorators/current-user.decorator';
 import { JwtGlobalGuard } from 'src/auth/guards/jwt-global.guard';
-import { Roles } from 'src/auth/decorators/roles.decorator';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import {
@@ -32,6 +31,8 @@ import {
   ErrorResponseDto,
   ValidationErrorResponseDto,
 } from 'src/common/dto/error-response.dto';
+import { PermissionCatalog } from 'src/common/rbac';
+import type { AuthenticatedUserContext } from 'src/auth/auth-context.util';
 
 @ApiTags('Users')
 @ApiBearerAuth()
@@ -40,57 +41,61 @@ import {
 export class UsersController {
   constructor(private usersService: UsersService) {}
 
-  @RequirePermissions('users.read')
-  @Roles('ADMIN')
+  @RequirePermissions(PermissionCatalog.USER_READ)
   @Get()
   @UseGuards(PermissionsGuard)
-  @ApiOperation({ summary: 'List users (requires users.read)' })
+  @ApiOperation({ summary: 'List users in requester organization' })
   @ApiOkResponse({ description: 'Users list' })
   @ApiUnauthorizedResponse({ type: ErrorResponseDto })
   @ApiForbiddenResponse({ type: ErrorResponseDto })
-  findAll(): Promise<UserResponseDto[]> {
-    return this.usersService.findAll();
+  findAll(
+    @CurrentUser() currentUser: AuthenticatedUserContext,
+  ): Promise<UserResponseDto[]> {
+    return this.usersService.findAll(currentUser);
   }
 
   @Get('me')
   @ApiOperation({ summary: 'Get authenticated user identity' })
   @ApiOkResponse({ description: 'Current user identity' })
   @ApiUnauthorizedResponse({ type: ErrorResponseDto })
-  me(@CurrentUser() user: { sub: string }) {
-    return this.usersService.findById(user.sub, user.sub);
+  me(@CurrentUser() currentUser: AuthenticatedUserContext) {
+    return this.usersService.findById(currentUser.id, currentUser);
   }
 
   @Get(':id')
   @UseGuards(PermissionsGuard)
-  @ApiOperation({ summary: 'Get one user by id' })
+  @ApiOperation({ summary: 'Get one user by id in requester scope' })
   @ApiParam({ name: 'id', type: String })
   @ApiOkResponse({ description: 'User by id' })
   @ApiUnauthorizedResponse({ type: ErrorResponseDto })
   @ApiForbiddenResponse({ type: ErrorResponseDto })
   findOne(
     @Param('id') id: string,
-    @CurrentUser() user: { sub: string },
-  ): Promise<UserResponseDto | null> {
-    return this.usersService.findById(id, user.sub);
+    @CurrentUser() currentUser: AuthenticatedUserContext,
+  ): Promise<UserResponseDto> {
+    return this.usersService.findById(id, currentUser);
   }
 
-  @RequirePermissions('users.write')
+  @RequirePermissions(PermissionCatalog.USER_CREATE)
   @Post()
   @UseGuards(PermissionsGuard)
-  @ApiOperation({ summary: 'Create user (requires users.write)' })
+  @ApiOperation({ summary: 'Create user in requester organization' })
   @ApiBody({ type: CreateUserDto })
   @ApiOkResponse({ description: 'User created' })
   @ApiBadRequestResponse({ type: ValidationErrorResponseDto })
   @ApiUnauthorizedResponse({ type: ErrorResponseDto })
   @ApiForbiddenResponse({ type: ErrorResponseDto })
-  create(@Body() body: CreateUserDto) {
-    return this.usersService.create(body);
+  create(
+    @Body() body: CreateUserDto,
+    @CurrentUser() currentUser: AuthenticatedUserContext,
+  ) {
+    return this.usersService.create(body, currentUser);
   }
 
-  @RequirePermissions('users.write')
+  @RequirePermissions(PermissionCatalog.USER_UPDATE)
   @Patch(':id')
   @UseGuards(PermissionsGuard)
-  @ApiOperation({ summary: 'Update user by id (requires users.write)' })
+  @ApiOperation({ summary: 'Update user by id in requester organization' })
   @ApiParam({ name: 'id', type: String })
   @ApiBody({ type: UpdateUserDto })
   @ApiOkResponse({ description: 'User updated' })
@@ -100,20 +105,23 @@ export class UsersController {
   update(
     @Param('id') id: string,
     @Body() body: UpdateUserDto,
-    @CurrentUser() user: { sub: string },
+    @CurrentUser() currentUser: AuthenticatedUserContext,
   ) {
-    return this.usersService.update(id, body, user.sub);
+    return this.usersService.update(id, body, currentUser);
   }
 
-  @RequirePermissions('users.write')
+  @RequirePermissions(PermissionCatalog.USER_UPDATE)
   @Delete(':id')
   @UseGuards(PermissionsGuard)
-  @ApiOperation({ summary: 'Delete user by id (requires users.write)' })
+  @ApiOperation({ summary: 'Soft-delete user by id in requester organization' })
   @ApiParam({ name: 'id', type: String })
   @ApiOkResponse({ description: 'User deleted' })
   @ApiUnauthorizedResponse({ type: ErrorResponseDto })
   @ApiForbiddenResponse({ type: ErrorResponseDto })
-  remove(@Param('id') id: string, @CurrentUser() user: { sub: string }) {
-    return this.usersService.remove(id, user.sub);
+  remove(
+    @Param('id') id: string,
+    @CurrentUser() currentUser: AuthenticatedUserContext,
+  ) {
+    return this.usersService.remove(id, currentUser);
   }
 }

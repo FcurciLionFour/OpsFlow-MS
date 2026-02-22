@@ -11,6 +11,12 @@ describe('AuthService', () => {
   let service: AuthService;
 
   const prismaMock = {
+    organization: {
+      upsert: jest.fn(),
+    },
+    role: {
+      upsert: jest.fn(),
+    },
     user: {
       create: jest.fn(),
       findUnique: jest.fn(),
@@ -61,6 +67,8 @@ describe('AuthService', () => {
     prismaMock.$transaction.mockImplementation((ops: unknown[]) =>
       Promise.resolve(ops),
     );
+    prismaMock.organization.upsert.mockResolvedValue({ id: 'org-1' });
+    prismaMock.role.upsert.mockResolvedValue({ id: 'operator-role' });
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [

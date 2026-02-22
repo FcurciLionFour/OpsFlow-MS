@@ -135,4 +135,32 @@ describe('GlobalExceptionFilter', () => {
       }),
     );
   });
+
+  it('preserves details and exposes traceId alias', () => {
+    const { host, response } = createHost({
+      requestId: 'trace-123',
+      path: '/cash-movements/cm-1/deliver',
+    });
+
+    filter.catch(
+      new HttpException(
+        {
+          code: 'CASHFLOW_INVALID_TRANSITION',
+          message: 'Invalid cash movement transition',
+          details: { from: 'PENDING', to: 'DELIVERED' },
+        },
+        HttpStatus.CONFLICT,
+      ),
+      host as unknown as ArgumentsHost,
+    );
+
+    expect(response.status).toHaveBeenCalledWith(409);
+    expect(response.json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        code: 'CASHFLOW_INVALID_TRANSITION',
+        traceId: 'trace-123',
+        details: { from: 'PENDING', to: 'DELIVERED' },
+      }),
+    );
+  });
 });

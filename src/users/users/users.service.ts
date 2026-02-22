@@ -6,54 +6,47 @@ import {
 import * as bcrypt from 'bcryptjs';
 import { ErrorCodes } from 'src/common/errors/error-codes';
 import { PrismaService } from 'src/prisma/prisma.service';
+import {
+  AuthenticatedUserContext,
+  resolveRuntimeRole,
+  uniqueStrings,
+} from 'src/auth/auth-context.util';
+import { BranchesRepository } from 'src/branches/branches.repository';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { UserResponseDto } from './dto/user-response.dto';
+import { UsersRepository } from './users.repository';
 
 @Injectable()
 export class UsersService {
-  constructor(private prisma: PrismaService) {}
+  private readonly usersRepository: UsersRepository;
+  private readonly branchesRepository: BranchesRepository;
 
-  async findAll(): Promise<UserResponseDto[]> {
-    const users = await this.prisma.user.findMany({
-      where: {
-        isActive: true,
-      },
-      select: {
-        id: true,
-        email: true,
-        roles: {
-          include: {
-            role: true,
-          },
-        },
-      },
+  constructor(private prisma: PrismaService) {
+    this.usersRepository = new UsersRepository(prisma);
+    this.branchesRepository = new BranchesRepository(prisma);
+  }
+
+  async findAll(
+    currentUser: AuthenticatedUserContext,
+  ): Promise<UserResponseDto[]> {
+    const users = await this.usersRepository.list(currentUser.organizationId, {
+      isActive: true,
     });
 
-    return users.map((u) => ({
-      id: u.id,
-      email: u.email,
-      roles: u.roles.map((ur) => ur.role.name),
-    }));
+    return users.map((user) => this.mapUserResponse(user));
   }
 
   async findById(
     id: string,
-    requesterId: string,
-  ): Promise<UserResponseDto | null> {
-    await this.assertCanAccessUser(id, requesterId);
-    const user = await this.prisma.user.findUnique({
-      where: { id },
-      select: {
-        id: true,
-        email: true,
-        roles: {
-          include: {
-            role: true,
-          },
-        },
-      },
-    });
+    currentUser: AuthenticatedUserContext,
+  ): Promise<UserResponseDto> {
+    await this.assertCanAccessUser(id, currentUser);
+
+    const user = await this.usersRepository.findById(
+      currentUser.organizationId,
+      id,
+    );
 
     if (!user) {
       throw new NotFoundException({
@@ -62,14 +55,12 @@ export class UsersService {
       });
     }
 
-    return {
-      id: user.id,
-      email: user.email,
-      roles: user.roles.map((ur) => ur.role.name),
-    };
+    return this.mapUserResponse(user);
   }
 
-  async create(data: CreateUserDto) {
+  async create(data: CreateUserDto, currentUser: AuthenticatedUserContext) {
+    this.assertCanManageUsers(currentUser);
+
     const exists = await this.prisma.user.findUnique({
       where: { email: data.email },
     });
@@ -88,53 +79,33 @@ export class UsersService {
       });
     }
 
-    const roles = await this.prisma.role.findMany({
-      where: {
-        name: {
-          in: data.roles,
-        },
-      },
-    });
-
-    if (roles.length !== data.roles.length) {
-      throw new ForbiddenException({
-        code: ErrorCodes.USER_INVALID_ROLE,
-        message: 'One or more roles are invalid',
-      });
-    }
+    const dbRoles = await this.loadRoles(data.roles);
+    const branchId = await this.resolveBranchId(
+      data.branchId,
+      currentUser.organizationId,
+    );
 
     const hashedPassword = await bcrypt.hash(data.password, 10);
 
-    let user: {
-      id: string;
-      email: string;
-      roles: Array<{ role: { name: string } }>;
-    };
     try {
-      user = await this.prisma.user.create({
-        data: {
+      const user = await this.usersRepository.create(
+        currentUser.organizationId,
+        {
+          branchId,
           email: data.email,
-          // Hash password here too for admin-driven user creation.
           password: hashedPassword,
           isActive: true,
           roles: {
-            create: roles.map((role) => ({
+            create: dbRoles.map((role) => ({
               role: {
                 connect: { id: role.id },
               },
             })),
           },
         },
-        select: {
-          id: true,
-          email: true,
-          roles: {
-            include: {
-              role: true,
-            },
-          },
-        },
-      });
+      );
+
+      return this.mapUserResponse(user);
     } catch (error: unknown) {
       if (this.isEmailUniqueViolation(error)) {
         throw new ForbiddenException({
@@ -145,20 +116,19 @@ export class UsersService {
 
       throw error;
     }
-
-    return {
-      id: user.id,
-      email: user.email,
-      roles: user.roles.map((ur) => ur.role.name),
-    };
   }
 
-  async update(id: string, data: UpdateUserDto, requesterId: string) {
-    await this.assertCanAccessUser(id, requesterId);
+  async update(
+    id: string,
+    data: UpdateUserDto,
+    currentUser: AuthenticatedUserContext,
+  ) {
+    await this.assertCanAccessUser(id, currentUser);
 
-    const user = await this.prisma.user.findUnique({
-      where: { id },
-    });
+    const user = await this.usersRepository.findById(
+      currentUser.organizationId,
+      id,
+    );
 
     if (!user) {
       throw new NotFoundException({
@@ -167,14 +137,29 @@ export class UsersService {
       });
     }
 
-    const { roles, ...userData } = data;
+    const { roles, branchId, ...userData } = data;
+    const updateData: {
+      email?: string;
+      isActive?: boolean;
+      branchId?: string | null;
+    } = {
+      ...userData,
+    };
 
-    if (Object.keys(userData).length > 0) {
+    if (branchId !== undefined) {
+      updateData.branchId = await this.resolveBranchId(
+        branchId,
+        currentUser.organizationId,
+      );
+    }
+
+    if (Object.keys(updateData).length > 0) {
       try {
-        await this.prisma.user.update({
-          where: { id },
-          data: userData,
-        });
+        await this.usersRepository.update(
+          currentUser.organizationId,
+          id,
+          updateData,
+        );
       } catch (error: unknown) {
         if (this.isEmailUniqueViolation(error)) {
           throw new ForbiddenException({
@@ -195,18 +180,7 @@ export class UsersService {
         });
       }
 
-      const dbRoles = await this.prisma.role.findMany({
-        where: {
-          name: { in: roles },
-        },
-      });
-
-      if (dbRoles.length !== roles.length) {
-        throw new ForbiddenException({
-          code: ErrorCodes.USER_INVALID_ROLE,
-          message: 'One or more roles are invalid',
-        });
-      }
+      const dbRoles = await this.loadRoles(roles);
 
       await this.prisma.userRole.deleteMany({
         where: { userId: id },
@@ -220,69 +194,41 @@ export class UsersService {
       });
     }
 
-    const updated = await this.prisma.user.findUnique({
-      where: { id },
-      select: {
-        id: true,
-        email: true,
-        isActive: true,
-        roles: {
-          include: {
-            role: true,
-          },
-        },
-      },
-    });
+    const updated = await this.usersRepository.findById(
+      currentUser.organizationId,
+      id,
+    );
 
-    return {
-      id: updated!.id,
-      email: updated!.email,
-      isActive: updated!.isActive,
-      roles: updated!.roles.map((ur) => ur.role.name),
-    };
-  }
-
-  async remove(id: string, requesterId: string) {
-    await this.assertCanAccessUser(id, requesterId);
-    const user = await this.prisma.user.findUnique({
-      where: { id },
-    });
-
-    if (!user) {
+    if (!updated) {
       throw new NotFoundException({
         code: ErrorCodes.USER_NOT_FOUND,
         message: 'User not found',
       });
     }
 
-    await this.prisma.user.update({
-      where: { id },
-      data: {
-        isActive: false,
-      },
-    });
+    return this.mapUserResponse(updated);
+  }
+
+  async remove(id: string, currentUser: AuthenticatedUserContext) {
+    await this.assertCanAccessUser(id, currentUser);
+
+    const wasDeleted = await this.usersRepository.softDelete(
+      currentUser.organizationId,
+      id,
+    );
+
+    if (!wasDeleted) {
+      throw new NotFoundException({
+        code: ErrorCodes.USER_NOT_FOUND,
+        message: 'User not found',
+      });
+    }
 
     return { success: true };
   }
 
-  private async assertCanAccessUser(
-    targetUserId: string,
-    requesterUserId: string,
-  ): Promise<void> {
-    const isAdmin = await this.prisma.userRole.findFirst({
-      where: {
-        userId: requesterUserId,
-        role: {
-          name: 'ADMIN',
-        },
-      },
-    });
-
-    if (isAdmin) {
-      return;
-    }
-
-    if (targetUserId === requesterUserId) {
+  private assertCanManageUsers(currentUser: AuthenticatedUserContext): void {
+    if (currentUser.role === 'ADMIN') {
       return;
     }
 
@@ -290,6 +236,101 @@ export class UsersService {
       code: ErrorCodes.ACCESS_DENIED,
       message: 'Access denied',
     });
+  }
+
+  private async assertCanAccessUser(
+    targetUserId: string,
+    currentUser: AuthenticatedUserContext,
+  ): Promise<void> {
+    const target = await this.usersRepository.findById(
+      currentUser.organizationId,
+      targetUserId,
+    );
+
+    if (!target) {
+      throw new NotFoundException({
+        code: ErrorCodes.USER_NOT_FOUND,
+        message: 'User not found',
+      });
+    }
+
+    if (currentUser.role === 'ADMIN') {
+      return;
+    }
+
+    if (target.id === currentUser.id) {
+      return;
+    }
+
+    throw new ForbiddenException({
+      code: ErrorCodes.ACCESS_DENIED,
+      message: 'Access denied',
+    });
+  }
+
+  private async loadRoles(roleNames: string[]) {
+    const dbRoles = await this.prisma.role.findMany({
+      where: {
+        name: {
+          in: roleNames,
+        },
+      },
+      select: {
+        id: true,
+        name: true,
+      },
+    });
+
+    if (dbRoles.length !== roleNames.length) {
+      throw new ForbiddenException({
+        code: ErrorCodes.USER_INVALID_ROLE,
+        message: 'One or more roles are invalid',
+      });
+    }
+
+    return dbRoles;
+  }
+
+  private async resolveBranchId(
+    branchId: string | null | undefined,
+    organizationId: string,
+  ): Promise<string | null> {
+    if (!branchId) {
+      return null;
+    }
+
+    const branch = await this.branchesRepository.findById(
+      organizationId,
+      branchId,
+    );
+
+    if (!branch) {
+      throw new NotFoundException({
+        code: ErrorCodes.BRANCH_NOT_FOUND,
+        message: 'Branch not found',
+      });
+    }
+
+    return branch.id;
+  }
+
+  private mapUserResponse(user: {
+    id: string;
+    organizationId: string;
+    branchId: string | null;
+    email: string;
+    roles: Array<{ role: { name: string } }>;
+  }): UserResponseDto {
+    const roleNames = uniqueStrings(user.roles.map((ur) => ur.role.name));
+
+    return {
+      id: user.id,
+      organizationId: user.organizationId,
+      branchId: user.branchId,
+      role: resolveRuntimeRole(roleNames),
+      email: user.email,
+      roles: roleNames,
+    };
   }
 
   private isEmailUniqueViolation(error: unknown): boolean {

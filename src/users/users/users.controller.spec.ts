@@ -1,4 +1,5 @@
 import { UsersController } from './users.controller';
+import { PermissionCatalog } from 'src/common/rbac';
 
 describe('UsersController', () => {
   const usersServiceMock: { findAll: jest.Mock } = {
@@ -13,12 +14,29 @@ describe('UsersController', () => {
 
   it('delegates findAll to service', async () => {
     usersServiceMock.findAll.mockResolvedValue([
-      { id: '1', email: 'a@a.com', roles: ['USER'] },
+      {
+        id: '1',
+        organizationId: 'org-1',
+        branchId: null,
+        role: 'OPERATOR',
+        email: 'a@a.com',
+        roles: ['OPERATOR'],
+      },
     ]);
 
-    const result = await controller.findAll();
+    const currentUser = {
+      sub: 'u1',
+      id: 'u1',
+      organizationId: 'org-1',
+      role: 'ADMIN' as const,
+      branchId: null,
+      roles: ['ADMIN'],
+      permissions: [PermissionCatalog.USER_READ],
+    };
 
-    expect(usersServiceMock.findAll).toHaveBeenCalledTimes(1);
+    const result = await controller.findAll(currentUser);
+
+    expect(usersServiceMock.findAll).toHaveBeenCalledWith(currentUser);
     expect(result).toHaveLength(1);
   });
 });

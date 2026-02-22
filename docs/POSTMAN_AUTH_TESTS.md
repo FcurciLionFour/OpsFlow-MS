@@ -52,7 +52,7 @@ Notas:
 4. `GET {{baseUrl}}/auth/me`
    - Header: `Authorization: Bearer {{accessToken}}`
    - Esperado: `200`
-   - Esperado: payload de sesion (user, roles, permissions)
+   - Esperado: payload de sesion con `user.id`, `user.organizationId`, `user.role`, `user.branchId`, `roles`, `permissions`
 
 5. `POST {{baseUrl}}/auth/refresh`
    - Header: `x-csrf-token: {{csrfToken}}`
@@ -95,3 +95,33 @@ Si logout "parece no funcionar":
 3. Confirmar status exacto: debe ser `204`.
 4. Reintentar `POST /auth/refresh`: debe devolver `401`.
 5. Si `refresh` sigue dando `200`, revisar dominio/path/samesite/secure de cookies en entorno real.
+
+## 5. Coleccion demo de negocio
+
+Se incluye una coleccion lista para demo:
+
+- `postman/opsflow-demo.postman_collection.json`
+
+Flujo incluido:
+
+1. Login admin
+2. `GET /auth/me`
+3. `GET /branches`
+4. Login operator
+5. `POST /cash-movements`
+6. Login manager
+7. `POST /cash-movements/:id/approve`
+8. `POST /cash-movements/:id/deliver`
+9. `GET /cashflow/stats`
+10. `GET /auth/csrf`
+11. `POST /auth/refresh`
+
+Variables de coleccion relevantes:
+
+- `baseUrl`
+- `adminEmail`, `adminPassword`
+- `managerEmail`, `managerPassword`
+- `operatorEmail`, `operatorPassword`
+- `adminAccessToken`, `managerAccessToken`, `operatorAccessToken`
+- `cashMovementId`
+- `csrfToken`

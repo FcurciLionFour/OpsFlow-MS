@@ -24,6 +24,7 @@ import { ResetPasswordDto } from './dto/reset-password.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { RateLimit } from 'src/common/decorators/rate-limit.decorator';
 import { RateLimitGuard } from 'src/common/guards/rate-limit.guard';
+import type { AuthenticatedUserContext } from './auth-context.util';
 import {
   ApiBadRequestResponse,
   ApiBearerAuth,
@@ -35,6 +36,7 @@ import {
   ApiTags,
   ApiUnauthorizedResponse,
   ApiNoContentResponse,
+  ApiCookieAuth,
 } from '@nestjs/swagger';
 import { AccessTokenResponseDto, OkResponseDto } from './dto/auth-response.dto';
 import {
@@ -126,7 +128,7 @@ export class AuthController {
   @ApiOperation({ summary: 'Get current authenticated user session data' })
   @ApiOkResponse({ description: 'Current session data' })
   @ApiUnauthorizedResponse({ type: ErrorResponseDto })
-  me(@CurrentUser() user: { sub: string }) {
+  me(@CurrentUser() user: AuthenticatedUserContext) {
     return this.authService.getSession(user.sub);
   }
 
@@ -135,6 +137,7 @@ export class AuthController {
   @Public()
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
+  @ApiCookieAuth('refresh_token')
   @ApiOperation({ summary: 'Refresh access token with refresh cookie + CSRF' })
   @ApiOkResponse({ type: AccessTokenResponseDto })
   @ApiUnauthorizedResponse({ type: ErrorResponseDto })
@@ -167,6 +170,7 @@ export class AuthController {
   @Public()
   @Post('logout')
   @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiCookieAuth('refresh_token')
   @ApiOperation({ summary: 'Logout current session' })
   @ApiNoContentResponse({ description: 'Session revoked' })
   @ApiUnauthorizedResponse({ type: ErrorResponseDto })
@@ -236,7 +240,7 @@ export class AuthController {
   @ApiForbiddenResponse({ type: ErrorResponseDto })
   @ApiUnauthorizedResponse({ type: ErrorResponseDto })
   changePassword(
-    @CurrentUser() user: { sub: string },
+    @CurrentUser() user: AuthenticatedUserContext,
     @Body() dto: ChangePasswordDto,
   ) {
     return this.authService.changePassword(

@@ -1,11 +1,9 @@
 import 'express';
+import type { AuthenticatedUserContext } from 'src/auth/auth-context.util';
 
 declare module 'express' {
   interface Request {
-    user?: {
-      sub: string;
-      sid?: string;
-    };
+    user?: AuthenticatedUserContext;
     requestId?: string;
   }
 }

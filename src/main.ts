@@ -8,15 +8,7 @@ import helmet from 'helmet';
 import { json, urlencoded } from 'express';
 import { randomUUID } from 'crypto';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
-
-export function shouldSetupSwagger(config: ConfigService): boolean {
-  const swaggerEnabled = config.get<boolean>('swagger.enabled') === true;
-  const isProduction = config.get<string>('nodeEnv') === 'production';
-  const allowInProduction =
-    config.get<boolean>('swagger.allowInProduction') === true;
-
-  return swaggerEnabled && (!isProduction || allowInProduction);
-}
+import { shouldSetupSwagger } from './bootstrap/should-setup-swagger';
 
 export async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -70,7 +62,18 @@ export async function bootstrap() {
       .setTitle('Backend NestJS Boilerplate API')
       .setDescription('API documentation for the NestJS SaaS boilerplate')
       .setVersion('1.0.0')
-      .addBearerAuth()
+      .addBearerAuth({
+        type: 'http',
+        scheme: 'bearer',
+        bearerFormat: 'JWT',
+        description: 'Access token sent in Authorization header',
+      })
+      .addCookieAuth('refresh_token', {
+        type: 'apiKey',
+        in: 'cookie',
+        description:
+          'HttpOnly refresh token cookie used by /auth/refresh and /auth/logout',
+      })
       .build();
 
     const document = SwaggerModule.createDocument(app, swaggerConfig);
@@ -85,6 +88,11 @@ export async function bootstrap() {
   await app.listen(port);
 }
 
-if (process.env.NODE_ENV !== 'test') {
+const isTestRuntime =
+  process.env.NODE_ENV === 'test' ||
+  process.env.JEST_WORKER_ID !== undefined ||
+  process.env.npm_lifecycle_event?.startsWith('test') === true;
+
+if (require.main === module && !isTestRuntime) {
   void bootstrap();
 }

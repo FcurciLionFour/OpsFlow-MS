@@ -65,7 +65,7 @@ Un backend “base” para webapps que:
 - `x-csrf-token: <csrf_token>` para endpoints mutativos protegidos por CSRF (ej. refresh/logout).
 
 ### Roles/Permissions (mínimo)
-- Role `ADMIN`: `users.read`, `users.write`
+- Role `ADMIN`: `USER_READ`, `USER_CREATE`, `USER_UPDATE`
 - Role `USER`: sin permisos administrativos por defecto (least privilege)
 
 ---
@@ -178,7 +178,7 @@ Un backend “base” para webapps que:
 
 16) **ADMIN accede a listado**
 - Endpoint: `GET /users`
-- Permiso requerido: `users.read`
+- Permiso requerido: `USER_READ`
 - Esperado: 200
 
 17) **USER intenta listado**
@@ -187,7 +187,7 @@ Un backend “base” para webapps que:
 
 18) **ADMIN create**
 - Endpoint: `POST /users`
-- Permiso: `users.write`
+- Permiso: `USER_CREATE`
 - Esperado: 201 + usuario creado
 
 19) **USER create**

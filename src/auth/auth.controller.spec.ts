@@ -6,6 +6,15 @@ import { AuthController } from './auth.controller';
 
 describe('AuthController', () => {
   let controller: AuthController;
+  const buildUser = (sub = 'user-1') => ({
+    sub,
+    id: sub,
+    organizationId: 'org-1',
+    role: 'OPERATOR' as const,
+    branchId: null,
+    roles: ['OPERATOR'],
+    permissions: [],
+  });
 
   const authServiceMock = {
     register: jest.fn(),
@@ -174,7 +183,7 @@ describe('AuthController', () => {
   it('returns current session through me endpoint', () => {
     authServiceMock.getSession.mockReturnValue({ user: { id: 'u1' } });
 
-    const result = controller.me({ sub: 'u1' });
+    const result = controller.me(buildUser('u1'));
 
     expect(authServiceMock.getSession).toHaveBeenCalledWith('u1');
     expect(result).toEqual({ user: { id: 'u1' } });
@@ -209,10 +218,10 @@ describe('AuthController', () => {
   it('forwards change-password payload', () => {
     authServiceMock.changePassword.mockReturnValue({ ok: true });
 
-    const result = controller.changePassword(
-      { sub: 'user-1' },
-      { currentPassword: 'old-pass', newPassword: 'new-pass' },
-    );
+    const result = controller.changePassword(buildUser('user-1'), {
+      currentPassword: 'old-pass',
+      newPassword: 'new-pass',
+    });
 
     expect(authServiceMock.changePassword).toHaveBeenCalledWith(
       'user-1',

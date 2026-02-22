@@ -22,14 +22,24 @@ import { RequirePermissions } from 'src/auth/decorators/permissions.decorator';
 import { PrismaModule } from 'src/prisma/prisma.module';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { RateLimitGuard } from 'src/common/guards/rate-limit.guard';
+import { PermissionCatalog, type Permission } from 'src/common/rbac';
 
-type RoleName = 'ADMIN' | 'USER';
-type PermissionKey = 'users.read' | 'users.write';
+type RoleName = 'ADMIN' | 'MANAGER' | 'OPERATOR' | 'USER';
+type PermissionKey = Permission;
 
 interface UserRecord {
   id: string;
+  organizationId: string;
+  branchId: string | null;
   email: string;
   password: string;
+  isActive: boolean;
+}
+
+interface OrganizationRecord {
+  id: string;
+  slug: string;
+  name: string;
   isActive: boolean;
 }
 
@@ -57,7 +67,7 @@ interface ResetTokenRecord {
 @Controller('rbac')
 @UseGuards(PermissionsGuard)
 class RbacTestController {
-  @RequirePermissions('users.read')
+  @RequirePermissions(PermissionCatalog.USER_READ)
   @Get('users-read')
   usersRead() {
     return { ok: true };
@@ -84,15 +94,110 @@ function pickSelected<T extends object>(
 function createPrismaMock() {
   const users = new Map<string, UserRecord>();
   const usersByEmail = new Map<string, string>();
+  const organizations = new Map<string, OrganizationRecord>();
+  const organizationsBySlug = new Map<string, string>();
+  const roleIdByName = new Map<RoleName, string>();
+  const roleNameById = new Map<string, RoleName>();
   const sessions = new Map<string, SessionRecord>();
   const resetTokens = new Map<string, ResetTokenRecord>();
   const userRoles = new Map<string, Set<RoleName>>();
   const rolePermissions: Record<RoleName, PermissionKey[]> = {
-    ADMIN: ['users.read', 'users.write'],
+    ADMIN: [PermissionCatalog.USER_READ, PermissionCatalog.USER_CREATE],
+    MANAGER: [],
+    OPERATOR: [],
     USER: [],
   };
 
   const mock = {
+    organization: {
+      upsert: jest.fn(
+        async ({
+          where,
+          update,
+          create,
+          select,
+        }: {
+          where: { slug: string };
+          update: Partial<OrganizationRecord>;
+          create: {
+            id?: string;
+            slug: string;
+            name: string;
+            isActive?: boolean;
+          };
+          select?: Record<string, boolean>;
+        }) => {
+          const existingId = organizationsBySlug.get(where.slug);
+          if (existingId) {
+            const current = organizations.get(existingId);
+            if (!current) {
+              throw new Error('Organization not found');
+            }
+
+            const next: OrganizationRecord = {
+              ...current,
+              ...update,
+              slug: current.slug,
+              id: current.id,
+            };
+            organizations.set(existingId, next);
+            return pickSelected(next, select);
+          }
+
+          const id = create.id ?? randomUUID();
+          const organization: OrganizationRecord = {
+            id,
+            slug: create.slug,
+            name: create.name,
+            isActive: create.isActive ?? true,
+          };
+          organizations.set(id, organization);
+          organizationsBySlug.set(organization.slug, id);
+          return pickSelected(organization, select);
+        },
+      ),
+    },
+    role: {
+      upsert: jest.fn(
+        async ({
+          where,
+          update,
+          create,
+          select,
+        }: {
+          where: { name: RoleName };
+          update: Record<string, unknown>;
+          create: { id?: string; name: RoleName; description?: string };
+          select?: Record<string, boolean>;
+        }) => {
+          const existingId = roleIdByName.get(where.name);
+          if (existingId) {
+            const existing = {
+              id: existingId,
+              name: where.name,
+              description:
+                typeof update.description === 'string'
+                  ? update.description
+                  : create.description,
+            };
+            return pickSelected(existing, select);
+          }
+
+          const id = create.id ?? randomUUID();
+          roleIdByName.set(create.name, id);
+          roleNameById.set(id, create.name);
+
+          return pickSelected(
+            {
+              id,
+              name: create.name,
+              description: create.description,
+            },
+            select,
+          );
+        },
+      ),
+    },
     user: {
       create: jest.fn(async ({ data }: { data: any }) => {
         if (usersByEmail.has(data.email)) {
@@ -100,8 +205,17 @@ function createPrismaMock() {
         }
 
         const id = randomUUID();
+        const organizationId =
+          (data.organizationId as string | undefined) ??
+          organizationsBySlug.get('default-org') ??
+          'org-default';
         const user: UserRecord = {
           id,
+          organizationId,
+          branchId:
+            data.branchId === undefined || data.branchId === null
+              ? null
+              : (data.branchId as string),
           email: data.email as string,
           password: data.password as string,
           isActive: data.isActive ?? true,
@@ -109,9 +223,12 @@ function createPrismaMock() {
         users.set(id, user);
         usersByEmail.set(user.email, id);
 
-        const roleName = data.roles?.create?.role?.connect?.name as
-          | RoleName
+        const connectedRole = data.roles?.create?.role?.connect as
+          | { id?: string; name?: RoleName }
           | undefined;
+        const roleName =
+          connectedRole?.name ??
+          (connectedRole?.id ? roleNameById.get(connectedRole.id) : undefined);
         if (roleName) {
           userRoles.set(id, new Set([roleName]));
         } else {

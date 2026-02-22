@@ -1,116 +1,95 @@
 # RBAC and Scope
 
-**Date:** 2026-01-28
+**Date:** 2026-02-19
 
 This boilerplate separates:
-- **RBAC (roles/permissions)** = capability control (admin features)
-- **Scope (ownership)** = resource-level access (self vs others)
 
-This separation prevents common mistakes like blocking self endpoints or duplicating access checks.
+- **RBAC (roles/permissions)** = capability control.
+- **Scope (tenant/ownership)** = resource-level access.
 
----
+## 1. Roles and runtime context
 
-## 1. Concepts
+Canonical runtime roles:
 
-### Role
-High-level grouping: `ADMIN`, `USER`.
+- `ADMIN`
+- `MANAGER`
+- `OPERATOR`
 
-### Permission
-Fine-grained capability: `users.read`, `users.write`, etc.
+Legacy `USER` is still accepted in DB but mapped to `OPERATOR` in runtime context.
 
-### RBAC
-Answers: “What can this user do globally?”  
-Enforced by `PermissionsGuard`.
+Per authenticated request, backend exposes:
 
-### Scope
-Answers: “On which specific records can the user operate?”  
-Enforced in **services** (not guards).
+- `request.user.sub`
+- `request.user.id`
+- `request.user.organizationId`
+- `request.user.role`
+- `request.user.branchId` (nullable)
+- `request.user.roles`
+- `request.user.permissions`
 
----
+## 2. Capability vs scope
 
-## 2. Canonical policy for Users module
+- RBAC answers: what can the user do?
+- Scope answers: over which records can the user act?
 
-| Endpoint | USER | ADMIN | Enforcement |
-|---|---:|---:|---|
-| `GET /users` | ❌ 403 | ✅ 200 | RBAC (`users.read`) |
-| `GET /users/me` | ✅ 200 | ✅ 200 | Scope/self |
-| `GET /users/:id (self)` | ✅ 200 | ✅ 200 | Scope/self |
-| `GET /users/:id (other)` | ❌ 403 | ✅ 200 | Scope + admin bypass |
-| `POST /users` | ❌ 403 | ✅ | RBAC (`users.write`) |
-| `PATCH /users/:id` | ❌ 403 | ✅ | RBAC (`users.write`) |
-| `DELETE /users/:id` | ❌ 403 | ✅ | RBAC (`users.write`) |
+Rules:
 
----
+- Capabilities are enforced with `PermissionsGuard` + permission decorators.
+- Scope is enforced in services (`organizationId` and `branchId` checks).
 
-## 3. How RBAC is implemented
+## 3. Tenant-first policy
 
-### 3.1 When to use permissions
-Use permissions for:
-- listing all records
-- cross-tenant/admin operations
-- operations that should never be available to normal users
+All business reads/writes must include tenant boundary:
 
-### 3.2 Applying PermissionsGuard
-Apply per controller or per route:
-```ts
-@UseGuards(JwtGlobalGuard, PermissionsGuard)
-```
-Then require permissions:
-```ts
-@RequirePermissions('users.read')
-```
+- never query or mutate outside `request.user.organizationId`.
+- avoid leaking existence of records from other tenants.
+- cross-tenant resource ids must return `404` with code `RESOURCE_NOT_FOUND` (never `403`).
 
-### 3.3 Deny-by-default behavior
-- If permissions required and no authenticated user → 401
-- If user has no roles → 403
-- If user missing permission → 403
+## 4. Branch-aware policy
 
----
+Default behavior used in cash/stats:
 
-## 4. How scope is implemented
+- `OPERATOR`: only own `branchId`.
+- `MANAGER` with `branchId` assigned: only that branch.
+- `MANAGER` without assigned branch: org-wide.
+- `ADMIN`: org-wide (optional branch filters allowed).
 
-### 4.1 Single helper per resource
-Example:
-```ts
-private async assertCanAccessUser(targetUserId: string, requesterUserId: string) {
-  if (await this.isAdmin(requesterUserId)) return;
-  if (targetUserId === requesterUserId) return;
-  throw new ForbiddenException('Access denied');
-}
-```
+En implementacion, este scope se centraliza en `BranchAccessService` para:
 
-### 4.2 Do not duplicate checks
-Never do:
-```ts
-await assertCanAccessUser(...);
-if (id !== requesterId) throw ForbiddenException();
-```
-The helper must be the single source of truth.
+- inferir branch en `POST /cash-movements` cuando corresponde;
+- validar filtros de branch en `GET /cash-movements` y `GET /cashflow/stats`;
+- bloquear accesos fuera de scope con `403 ACCESS_DENIED`;
+- mantener anti-leak cross-tenant con `404 RESOURCE_NOT_FOUND`.
 
----
+## 5. Permission examples
 
-## 5. Seeding policy (default)
+- `USER_READ`, `USER_CREATE`, `USER_UPDATE`
+- `BRANCH_READ`, `BRANCH_CREATE`, `BRANCH_UPDATE`
+- `CASH_MOVEMENT_READ`, `CASH_MOVEMENT_CREATE`, `CASH_MOVEMENT_APPROVE`, `CASH_MOVEMENT_REJECT`, `CASH_MOVEMENT_DELIVER`
+- `CASHFLOW_STATS_READ`
 
-- Create roles: `ADMIN`, `USER`
-- Create permissions needed by admin endpoints
-- Assign permissions only to roles that need them
+Workflow de estados de caja:
 
-Recommended default:
-- ADMIN: `users.read`, `users.write`
-- USER: (none of the admin permissions)
+- `PENDING -> APPROVED | REJECTED`
+- `APPROVED -> DELIVERED`
+- transicion invalida -> `409 CASHFLOW_INVALID_TRANSITION`
 
----
+## 6. Controller/Service split
 
-## 6. Troubleshooting
+Controller:
 
-### USER can list all users
-- Check RolePermission: USER has `users.read`
-- Fix seed and remove mapping
+- thin, validates DTOs, delegates.
+- can require permissions.
 
-### Admin cannot access other ids
-- Ownership check duplicated outside helper
-- Remove duplicate check and ensure helper has admin bypass first
+Service:
 
-### requesterId is undefined
-- JwtStrategy returned `{ userId }` instead of `{ sub }`
-- Standardize on `sub`
+- single source of truth for tenant/branch/ownership checks.
+- no duplicated access logic in controllers.
+
+## 7. Seed defaults
+
+Recommended matrix:
+
+- `ADMIN`: all permissions above.
+- `MANAGER`: `BRANCH_READ`, `USER_READ`, `CASH_MOVEMENT_CREATE`, `CASH_MOVEMENT_READ`, `CASH_MOVEMENT_APPROVE`, `CASH_MOVEMENT_REJECT`, `CASH_MOVEMENT_DELIVER`, `CASHFLOW_STATS_READ`.
+- `OPERATOR`: `CASH_MOVEMENT_CREATE`, `CASH_MOVEMENT_READ`, `CASHFLOW_STATS_READ`.

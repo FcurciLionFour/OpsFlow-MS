@@ -25,6 +25,15 @@ export class ErrorResponseDto {
   @ApiProperty({ example: '9e399153-2df5-4f70-9d00-4f7875b746f5' })
   requestId?: string;
 
+  @ApiProperty({ example: '9e399153-2df5-4f70-9d00-4f7875b746f5' })
+  traceId?: string;
+
+  @ApiProperty({
+    example: { from: 'PENDING', to: 'DELIVERED' },
+    required: false,
+  })
+  details?: unknown;
+
   @ApiProperty({ example: 60, required: false })
   retryAfterSeconds?: number;
 }

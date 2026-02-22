@@ -40,11 +40,19 @@ JwtStrategy must return:
 
 ```ts
 validate(payload: { sub: string }) {
-  return { sub: payload.sub };
+  return {
+    sub: payload.sub,
+    id: payload.sub,
+    organizationId: '...',
+    role: 'ADMIN|MANAGER|OPERATOR',
+    branchId: null,
+    roles: ['...'],
+    permissions: ['...'],
+  };
 }
 ```
 
-If you rename it (e.g., `userId`), you must update every guard/service/decorator. This boilerplate standardizes on `sub`.
+If you rename `sub` (e.g., `userId`), you must update every guard/service/decorator. This boilerplate standardizes on `sub`.
 
 ### 2.2 Refresh token
 - Stored in **HttpOnly cookie** `refresh_token`.

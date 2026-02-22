@@ -1,6 +1,6 @@
 # backend-nestjs-boilerplate
 
-Boilerplate backend con NestJS para aplicaciones SaaS, con autenticacion JWT, refresh token por cookie HttpOnly, CSRF, RBAC, rate-limit y Prisma.
+Boilerplate backend con NestJS para aplicaciones SaaS, con autenticacion JWT, refresh token por cookie HttpOnly, CSRF, RBAC, scoping multi-tenant estricto (organization/branch), flujos de caja y Prisma.
 
 ## Requisitos
 
@@ -33,7 +33,12 @@ cp .env.example .env
 - `SWAGGER_ALLOW_IN_PRODUCTION=true` (solo si queres exponer docs en prod)
 - `RATE_LIMIT_REDIS_URL` (recomendado para rate-limit distribuido en multi-instancia)
 - `LOGIN_LOCK_ENABLED`, `LOGIN_LOCK_REDIS_URL`, `LOGIN_MAX_FAILURES`, `LOGIN_ATTEMPT_WINDOW_MS`, `LOGIN_LOCK_BASE_MS`, `LOGIN_LOCK_MAX_MS` para lockout progresivo por `ip+email`
-- `SEED_ADMIN_EMAIL`, `SEED_ADMIN_PASSWORD`, `SEED_USER_EMAIL`, `SEED_USER_PASSWORD` para crear usuarios de prueba via seed
+- `SEED_ADMIN_EMAIL`, `SEED_ADMIN_PASSWORD`, `SEED_USER_EMAIL`, `SEED_USER_PASSWORD` para crear usuarios de prueba via seed (`SEED_USER_*` crea un operador)
+- `SEED_ORG_SLUG`, `SEED_ORG_NAME`, `SEED_BRANCH_CODE`, `SEED_BRANCH_NAME` para controlar tenant y branch por defecto del seed
+- `SEED_DEMO_PASSWORD` para password unica de usuarios demo (`Demo1234!` por defecto)
+- `SEED_DEMO_BRANCH_COUNT` para cantidad de sucursales demo (incluye `HQ` y `NORTE`; default `6`, max `8`)
+- `SEED_DEMO_OPERATORS_PER_BRANCH` para operadores demo por sucursal (default `3`, max `8`)
+- `SEED_DEMO_MOVEMENTS_PER_BRANCH` para movimientos demo por sucursal en ventana de 30 dias (default `24`, max `120`)
 
 4. Ejecutar migraciones y seed:
 
@@ -96,11 +101,18 @@ El paso de cobertura falla automaticamente si cae por debajo de los umbrales def
 - Auth con access token (Bearer) y refresh token por cookie.
 - Proteccion CSRF para endpoints sensibles (refresh/logout).
 - Autorizacion por roles/permisos (RBAC).
+- Roles canonicos para runtime: `ADMIN`, `MANAGER`, `OPERATOR` (legacy `USER` se mapea a `OPERATOR`).
+- `request.user` enriquecido por request autenticado: `sub`, `id`, `organizationId`, `role`, `branchId`, `roles`, `permissions`.
+- Scope multi-tenant estricto en servicios: nunca se cruza `organizationId`.
 - Rate-limit configurable por endpoint.
 - Rate-limit con fallback en memoria y soporte Redis opcional (`RATE_LIMIT_REDIS_URL`).
 - Lockout progresivo de login por `ip+email` con backoff exponencial y `429` (`LOGIN_LOCKED`), con Redis opcional para multi-instancia.
 - Endpoints de operacion: `GET /health` y `GET /ready`.
 - Endpoint de metricas Prometheus: `GET /metrics`.
+- Modulos de negocio incluidos:
+  - `branches`: gestion de sucursales por organizacion.
+  - `cash-movements`: create/list + workflow approve/reject/deliver con transiciones validadas.
+  - `cashflow`: dashboard agregado (`GET /cashflow/stats`) con scoping tenant/branch.
 - OpenAPI/Swagger deshabilitado por defecto; requiere `SWAGGER_ENABLED=true` y en produccion tambien `SWAGGER_ALLOW_IN_PRODUCTION=true`.
 
 ## Documentacion operativa
@@ -118,3 +130,4 @@ El paso de cobertura falla automaticamente si cae por debajo de los umbrales def
 - Governance de repositorio (branch protection + checks): `docs/REPO_GOVERNANCE.md`
 - Arquitectura: `docs/ARCHITECTURE.md`
 - Plan de pruebas backend: `docs/BACKEND_TEST_PLAN.md`
+- Credenciales demo para QA/manual testing: `docs/DEMO_TEST_USERS.md`

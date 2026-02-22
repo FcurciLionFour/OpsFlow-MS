@@ -10,6 +10,7 @@ import * as bcrypt from 'bcryptjs';
 import { createHash, randomUUID } from 'crypto';
 import { LoginAttemptService } from './login-attempt.service';
 import { ErrorCodes } from 'src/common/errors/error-codes';
+import { resolveRuntimeRole, uniqueStrings } from './auth-context.util';
 
 @Injectable()
 export class AuthService {
@@ -23,19 +24,23 @@ export class AuthService {
   /* ---------------- REGISTER / LOGIN ---------------- */
 
   async register(email: string, password: string, meta?: SessionMeta) {
+    const organizationId = await this.ensureDefaultOrganizationId();
+    const operatorRoleId = await this.ensureOperatorRoleId();
     const hashedPassword = await bcrypt.hash(password, 10);
 
     let user: { id: string };
     try {
       user = await this.prisma.user.create({
         data: {
+          organizationId,
+          branchId: null,
           email,
           password: hashedPassword,
           isActive: true,
           roles: {
             create: {
               role: {
-                connect: { name: 'USER' },
+                connect: { id: operatorRoleId },
               },
             },
           },
@@ -260,6 +265,8 @@ export class AuthService {
         id: true,
         email: true,
         isActive: true,
+        organizationId: true,
+        branchId: true,
       },
     });
     if (!user || !user.isActive) {
@@ -282,17 +289,23 @@ export class AuthService {
       },
     });
 
+    const roleNames = uniqueStrings(roles.map((r) => r.role.name));
+    const permissions = uniqueStrings(
+      roles.flatMap((r) => r.role.permissions.map((p) => p.permission.key)),
+    );
+    const role = resolveRuntimeRole(roleNames);
+
     return {
       user: {
         id: user.id,
         email: user.email,
+        organizationId: user.organizationId,
+        branchId: user.branchId,
+        role,
       },
-      roles: roles.map((r) => r.role.name),
-      permissions: [
-        ...new Set(
-          roles.flatMap((r) => r.role.permissions.map((p) => p.permission.key)),
-        ),
-      ],
+      role,
+      roles: roleNames,
+      permissions,
     };
   }
 
@@ -423,6 +436,44 @@ export class AuthService {
     }
 
     return typeof target === 'string' && target.includes('email');
+  }
+
+  private async ensureDefaultOrganizationId(): Promise<string> {
+    const defaultOrgSlug = (
+      process.env.SEED_ORG_SLUG?.trim().toLowerCase() || 'default-org'
+    ).slice(0, 64);
+    const defaultOrgName =
+      process.env.SEED_ORG_NAME?.trim() || 'Default Organization';
+
+    const organization = await this.prisma.organization.upsert({
+      where: { slug: defaultOrgSlug },
+      update: {
+        name: defaultOrgName,
+        isActive: true,
+      },
+      create: {
+        name: defaultOrgName,
+        slug: defaultOrgSlug,
+        isActive: true,
+      },
+      select: { id: true },
+    });
+
+    return organization.id;
+  }
+
+  private async ensureOperatorRoleId(): Promise<string> {
+    const role = await this.prisma.role.upsert({
+      where: { name: 'OPERATOR' },
+      update: {},
+      create: {
+        name: 'OPERATOR',
+        description: 'Branch operator',
+      },
+      select: { id: true },
+    });
+
+    return role.id;
   }
 }
 

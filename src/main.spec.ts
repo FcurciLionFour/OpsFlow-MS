@@ -1,5 +1,5 @@
 import { ConfigService } from '@nestjs/config';
-import { shouldSetupSwagger } from './main';
+import { shouldSetupSwagger } from './bootstrap/should-setup-swagger';
 
 describe('shouldSetupSwagger', () => {
   const buildConfig = (values: Record<string, unknown>) =>

@@ -25,8 +25,8 @@ This document describes conventions for data access and safe Prisma usage.
   - `auditLogs` → `AuditLog[]` (as actor)
 
 ### Role / Permission
-- Role: `name` (ADMIN/USER)
-- Permission: `key` (`users.read`, ...)
+- Role: `name` (ADMIN/MANAGER/OPERATOR, with legacy USER supported)
+- Permission: `key` (`USER_READ`, ...)
 - Join tables:
   - `UserRole`
   - `RolePermission`

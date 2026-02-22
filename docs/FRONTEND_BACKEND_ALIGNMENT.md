@@ -141,10 +141,14 @@ Exito:
 {
   "user": {
     "id": "uuid",
-    "email": "user@example.com"
+    "email": "user@example.com",
+    "organizationId": "org-uuid-or-string",
+    "branchId": "branch-uuid-or-string-or-null",
+    "role": "OPERATOR"
   },
-  "roles": ["USER"],
-  "permissions": []
+  "role": "OPERATOR",
+  "roles": ["OPERATOR"],
+  "permissions": ["CASH_MOVEMENT_READ"]
 }
 ```
 
@@ -294,7 +298,8 @@ Errores:
 Uso:
 
 - Requiere Bearer token.
-- Requiere RBAC: `Role ADMIN` + permiso `users.read`.
+- Requiere RBAC: `Role ADMIN` + permiso `USER_READ`.
+- Scope: solo usuarios de la misma `organizationId` del requester.
 
 Exito:
 
@@ -304,6 +309,9 @@ Exito:
 [
   {
     "id": "uuid",
+    "organizationId": "org-uuid-or-string",
+    "branchId": null,
+    "role": "ADMIN",
     "email": "admin@example.com",
     "roles": ["ADMIN"]
   }
@@ -331,8 +339,11 @@ Exito:
 ```json
 {
   "id": "uuid",
+  "organizationId": "org-uuid-or-string",
+  "branchId": "branch-uuid-or-string-or-null",
+  "role": "OPERATOR",
   "email": "user@example.com",
-  "roles": ["USER"]
+  "roles": ["OPERATOR"]
 }
 ```
 
@@ -348,7 +359,7 @@ Uso:
 - Requiere Bearer token.
 - Scope:
   - self permitido,
-  - admin permitido,
+  - admin permitido (siempre dentro de su organization),
   - otro usuario no admin: denegado.
 
 Exito:
@@ -358,8 +369,11 @@ Exito:
 ```json
 {
   "id": "uuid",
+  "organizationId": "org-uuid-or-string",
+  "branchId": "branch-uuid-or-string-or-null",
+  "role": "OPERATOR",
   "email": "user@example.com",
-  "roles": ["USER"]
+  "roles": ["OPERATOR"]
 }
 ```
 
@@ -374,13 +388,14 @@ Errores:
 Uso:
 
 - Requiere Bearer token.
-- Requiere permiso `users.write`.
+- Requiere permiso `USER_CREATE`.
 - Body:
 ```json
 {
   "email": "new@example.com",
   "password": "Password123",
-  "roles": ["USER"]
+  "roles": ["OPERATOR"],
+  "branchId": "branch-uuid-or-string"
 }
 ```
 
@@ -391,8 +406,11 @@ Exito:
 ```json
 {
   "id": "uuid",
+  "organizationId": "org-uuid-or-string",
+  "branchId": "branch-uuid-or-string-or-null",
+  "role": "OPERATOR",
   "email": "new@example.com",
-  "roles": ["USER"]
+  "roles": ["OPERATOR"]
 }
 ```
 
@@ -410,12 +428,13 @@ Errores:
 Uso:
 
 - Requiere Bearer token.
-- Requiere permiso `users.write`.
+- Requiere permiso `USER_UPDATE`.
 - Body (todos opcionales):
 ```json
 {
   "email": "updated@example.com",
   "isActive": true,
+  "branchId": null,
   "roles": ["ADMIN"]
 }
 ```
@@ -427,8 +446,10 @@ Exito:
 ```json
 {
   "id": "uuid",
+  "organizationId": "org-uuid-or-string",
+  "branchId": null,
+  "role": "ADMIN",
   "email": "updated@example.com",
-  "isActive": true,
   "roles": ["ADMIN"]
 }
 ```
@@ -449,7 +470,7 @@ Errores:
 Uso:
 
 - Requiere Bearer token.
-- Requiere permiso `users.write`.
+- Requiere permiso `USER_UPDATE`.
 - Hace soft delete (`isActive=false`).
 
 Exito:
@@ -469,7 +490,202 @@ Errores:
 - `403` `ACCESS_DENIED`.
 - `404` `USER_NOT_FOUND`.
 
-## 5. Endpoints operativos
+## 5. Endpoints de Branches
+
+## `GET /branches`
+
+Uso:
+
+- Requiere Bearer token.
+- Requiere permiso `BRANCH_READ`.
+- Scope: solo branches de la `organizationId` del requester.
+
+Exito:
+
+- `200`
+- Body:
+```json
+[
+  {
+    "id": "branch-id",
+    "organizationId": "org-id",
+    "name": "Main Branch",
+    "code": "MAIN",
+    "isActive": true
+  }
+]
+```
+
+Errores:
+
+- `401` `UNAUTHORIZED`.
+- `403` `AUTH_MISSING_REQUIRED_PERMISSION`.
+
+## `POST /branches`
+
+Uso:
+
+- Requiere Bearer token.
+- Requiere permiso `BRANCH_CREATE`.
+
+Body:
+```json
+{
+  "name": "New Branch",
+  "code": "NORTH"
+}
+```
+
+Exito:
+
+- `201`
+
+Errores:
+
+- `403` `BRANCH_CODE_ALREADY_EXISTS`.
+
+## 6. Endpoints de Cash Movements
+
+## `GET /cash-movements`
+
+Uso:
+
+- Requiere Bearer token.
+- Requiere permiso `CASH_MOVEMENT_READ`.
+- Query opcional: `branchId`, `status`, `from`, `to`, `page`, `pageSize`.
+- Scope:
+  - `OPERATOR`: solo su `branchId`.
+  - `MANAGER` con `branchId` asignado: solo ese branch.
+  - `MANAGER` sin `branchId`: org-wide.
+  - `ADMIN`: org-wide (opcional filtro por branch).
+
+Exito:
+
+- `200`
+- Body:
+```json
+{
+  "data": [
+    {
+      "id": "cm-id",
+      "organizationId": "org-id",
+      "branchId": "branch-id",
+      "createdById": "user-id",
+      "approvedById": null,
+      "deliveredById": null,
+      "type": "OUT",
+      "status": "PENDING",
+      "amount": "1200.50",
+      "currency": "ARS",
+      "description": "opening shift",
+      "createdAt": "2026-02-19T10:00:01.000Z",
+      "updatedAt": "2026-02-19T10:00:01.000Z"
+    }
+  ],
+  "meta": {
+    "page": 1,
+    "pageSize": 20,
+    "total": 1,
+    "totalPages": 1
+  }
+}
+```
+
+## `POST /cash-movements`
+
+Uso:
+
+- Requiere Bearer token.
+- Requiere permiso `CASH_MOVEMENT_CREATE`.
+- `OPERATOR`: `branchId` se infiere del token y `status` inicial siempre `PENDING`.
+- `MANAGER/ADMIN`: `branchId` opcional, validado dentro de scope accesible.
+
+Body:
+```json
+{
+  "type": "OUT",
+  "amount": "250.75",
+  "branchId": "branch-id",
+  "currency": "ARS",
+  "description": "petty cash"
+}
+```
+
+Errores:
+
+- `400` `CASH_MOVEMENTS_INVALID_AMOUNT`.
+- `403` `ACCESS_DENIED`.
+- `404` `BRANCH_NOT_FOUND`.
+
+## `POST /cash-movements/:id/approve`
+## `POST /cash-movements/:id/reject`
+## `POST /cash-movements/:id/deliver`
+
+Uso:
+
+- Requiere permisos:
+  - `approve`: `CASH_MOVEMENT_APPROVE`
+  - `reject`: `CASH_MOVEMENT_REJECT`
+  - `deliver`: `CASH_MOVEMENT_DELIVER`
+- Scope por tenant + branch.
+- Transiciones validas:
+  - `PENDING -> APPROVED | REJECTED`
+  - `APPROVED -> DELIVERED`
+
+Error de transicion invalida:
+
+```json
+{
+  "statusCode": 409,
+  "code": "CASHFLOW_INVALID_TRANSITION",
+  "message": "Invalid cash movement transition",
+  "details": { "from": "PENDING", "to": "DELIVERED" },
+  "traceId": "..."
+}
+```
+
+## 7. Endpoints de Cashflow
+
+## `GET /cashflow/stats`
+
+Uso:
+
+- Requiere Bearer token.
+- Requiere permiso `CASHFLOW_STATS_READ`.
+- Query opcional: `branchId`, `from`, `to`.
+- Si no se envian `from/to`, backend usa rango por defecto de ultimos 30 dias.
+- Scope por tenant/branch segun rol.
+
+Exito:
+
+- `200`
+- Body:
+```json
+{
+  "range": {
+    "from": "2026-02-01T00:00:00.000Z",
+    "to": "2026-02-19T23:59:59.999Z"
+  },
+  "branchId": "branch-id-or-null",
+  "cards": {
+    "totalIn": "1000.00",
+    "totalOut": "350.00",
+    "net": "650.00",
+    "pendingCount": 3,
+    "approvedCount": 2,
+    "deliveredCount": 5,
+    "rejectedCount": 1
+  }
+}
+```
+
+Errores:
+
+- `400` `STATS_INVALID_DATE_RANGE`.
+- `403` `ACCESS_DENIED`.
+- `404` `BRANCH_NOT_FOUND`.
+
+## 8. Endpoints operativos
 
 ## `GET /health`
 
@@ -524,7 +740,7 @@ Exito:
 - `200`
 - Body de texto con metricas.
 
-## 6. Endpoint base del boilerplate
+## 9. Endpoint base del boilerplate
 
 ## `GET /`
 
@@ -544,7 +760,7 @@ Nota:
 
 - Este endpoint es de ejemplo y se puede eliminar en proyectos cliente.
 
-## 7. Recomendaciones para frontend
+## 10. Recomendaciones para frontend
 
 1. Centralizar manejo de `401` para refresh automatico controlado.
 2. Si `refresh` falla, limpiar estado local y redirigir a login.

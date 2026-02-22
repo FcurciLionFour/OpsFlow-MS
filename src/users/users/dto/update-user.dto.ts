@@ -21,4 +21,8 @@ export class UpdateUserDto {
   @ArrayNotEmpty()
   @IsString({ each: true })
   roles?: string[];
+
+  @IsOptional()
+  @IsString()
+  branchId?: string | null;
 }

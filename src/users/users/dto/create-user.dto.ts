@@ -2,6 +2,7 @@ import {
   ArrayNotEmpty,
   IsArray,
   IsEmail,
+  IsOptional,
   IsString,
   MinLength,
 } from 'class-validator';
@@ -18,4 +19,8 @@ export class CreateUserDto {
   @ArrayNotEmpty()
   @IsString({ each: true })
   roles: string[];
+
+  @IsOptional()
+  @IsString()
+  branchId?: string;
 }

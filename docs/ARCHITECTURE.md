@@ -148,12 +148,26 @@ src/
     users.controller.ts
     users.service.ts
     users.module.ts
-  modules/
-    <business-module>/
-      dto/
-      <business-module>.controller.ts
-      <business-module>.service.ts
-      <business-module>.module.ts
+  branches/
+    dto/
+    branches.controller.ts
+    branches.service.ts
+    branches.module.ts
+  cash-movements/
+    dto/
+    cash-movements.controller.ts
+    cash-movements.service.ts
+    cash-movements.module.ts
+  cashflow/
+    dto/
+    cashflow.controller.ts
+    cashflow.service.ts
+    cashflow.module.ts
+  <future-business-module>/
+    dto/
+    <future-business-module>.controller.ts
+    <future-business-module>.service.ts
+    <future-business-module>.module.ts
 ```
 
 **Why this layout works**
@@ -170,7 +184,7 @@ If you want “never touch core again”, keep these invariants:
 
 1. **JWT subject is always `sub`**
 2. **Administrative listing endpoints use RBAC**
-   - Example: `GET /users` requires `users.read`.
+   - Example: `GET /users` requires `USER_READ`.
 3. **Self/ownership endpoints do not rely on RBAC**
    - Example: `GET /users/:id` is controlled by service scope helper.
 4. **All access decisions are centralized**

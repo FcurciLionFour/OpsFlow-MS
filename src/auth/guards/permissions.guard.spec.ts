@@ -4,6 +4,7 @@ import {
   type ExecutionContext,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
+import { PermissionCatalog } from 'src/common/rbac';
 import { PrismaService } from 'src/prisma/prisma.service';
 import { PermissionsGuard } from './permissions.guard';
 
@@ -42,7 +43,7 @@ describe('PermissionsGuard', () => {
   it('throws unauthorized when requirements exist but no user', async () => {
     (reflectorMock.getAllAndOverride as jest.Mock)
       .mockReturnValueOnce([])
-      .mockReturnValueOnce(['users.read']);
+      .mockReturnValueOnce([PermissionCatalog.USER_READ]);
     const guard = new PermissionsGuard(reflectorMock, prismaMock);
 
     await expect(guard.canActivate(buildContext())).rejects.toBeInstanceOf(
@@ -53,7 +54,7 @@ describe('PermissionsGuard', () => {
   it('throws forbidden when user has no roles', async () => {
     (reflectorMock.getAllAndOverride as jest.Mock)
       .mockReturnValueOnce([])
-      .mockReturnValueOnce(['users.read']);
+      .mockReturnValueOnce([PermissionCatalog.USER_READ]);
     (prismaMock.user.findUnique as jest.Mock).mockResolvedValue({
       isActive: true,
     });
@@ -69,7 +70,7 @@ describe('PermissionsGuard', () => {
   it('throws unauthorized when user is inactive', async () => {
     (reflectorMock.getAllAndOverride as jest.Mock)
       .mockReturnValueOnce([])
-      .mockReturnValueOnce(['users.read']);
+      .mockReturnValueOnce([PermissionCatalog.USER_READ]);
     (prismaMock.user.findUnique as jest.Mock).mockResolvedValue({
       isActive: false,
     });
@@ -79,5 +80,28 @@ describe('PermissionsGuard', () => {
     await expect(
       guard.canActivate(buildContext({ sub: 'user-1' })),
     ).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+
+  it('throws forbidden when required permission is missing', async () => {
+    (reflectorMock.getAllAndOverride as jest.Mock)
+      .mockReturnValueOnce([])
+      .mockReturnValueOnce([PermissionCatalog.USER_UPDATE]);
+    (prismaMock.user.findUnique as jest.Mock).mockResolvedValue({
+      isActive: true,
+    });
+    (prismaMock.userRole.findMany as jest.Mock).mockResolvedValue([
+      {
+        role: {
+          name: 'OPERATOR',
+          permissions: [{ permission: { key: PermissionCatalog.USER_READ } }],
+        },
+      },
+    ]);
+
+    const guard = new PermissionsGuard(reflectorMock, prismaMock);
+
+    await expect(
+      guard.canActivate(buildContext({ sub: 'user-1' })),
+    ).rejects.toBeInstanceOf(ForbiddenException);
   });
 });
